@@ -163,7 +163,8 @@ class AlertSkill(MycroftSkill):
         self.register_intent(timer_status, self.handle_timer_status)
 
         self.add_event("sl.get_events", self._get_events)
-        self.add_event("neon.set_routine", self.handle_create_alarm)
+        self.add_event("neon.set_routine_reminder", self.handle_create_alarm)
+        self.add_event("neon.set_routine_timer", self.handle_create_timer)
 
         self._check_for_missed_alerts()
 
@@ -498,7 +499,7 @@ class AlertSkill(MycroftSkill):
         priority = alert_content.get("priority")
         utterance = message.data.get("utterance")
         is_routine = message.data.get("is_routine")
-        routine_variables = message.context.get("routine_variables")
+        commitment_id = message.context.get("commitment_id")
 
         # No Time Extracted
         if not alert_time:
@@ -538,7 +539,7 @@ class AlertSkill(MycroftSkill):
                 'utterance': utterance,
                 'context': message.context,
                 'is_routine': is_routine,
-                'routine_variables': routine_variables}
+                'commitment_id': commitment_id}
 
         self._write_event_to_schedule(data)
 
@@ -1310,8 +1311,7 @@ class AlertSkill(MycroftSkill):
             self._speak_notify_expired(message)
 
     def _run_alert_routine(self, message):
-        context = message.data.get("routine_variables")
-        self.bus.emit(Message("neon.run_alert_routine", data=message.data, context=context))
+        self.bus.emit(Message("neon.run_alert_routine", data=message.data, context=message.context))
 
     def _run_notify_expired(self, message):
         LOG.debug(message.data)
