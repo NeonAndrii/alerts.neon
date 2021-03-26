@@ -163,6 +163,7 @@ class AlertSkill(MycroftSkill):
         self.register_intent(timer_status, self.handle_timer_status)
 
         self.add_event("sl.get_events", self._get_events)
+        self.add_event("neon.set_routine", self.handle_create_alarm)
 
         self._check_for_missed_alerts()
 
@@ -493,8 +494,11 @@ class AlertSkill(MycroftSkill):
         repeat = alert_content.get("repeat_frequency", alert_content.get("repeat_days"))
         final = alert_content.get("end_repeat")
         script = alert_content.get("script_filename")
+        script_variables = alert_content.get("script_variables")
         priority = alert_content.get("priority")
         utterance = message.data.get("utterance")
+        is_routine = message.data.get("is_routine")
+        routine_variables = message.context.get("routine_variables")
 
         # No Time Extracted
         if not alert_time:
@@ -527,11 +531,14 @@ class AlertSkill(MycroftSkill):
                 'kind': kind,
                 'file': file,
                 'script': script,
+                'script_variables': script_variables,
                 'priority': priority,
                 'repeat': repeat,
                 'final': str(final),
                 'utterance': utterance,
-                'context': message.context}
+                'context': message.context,
+                'is_routine': is_routine,
+                'routine_variables': routine_variables}
 
         self._write_event_to_schedule(data)
 
@@ -641,6 +648,7 @@ class AlertSkill(MycroftSkill):
                                                       context=message.context))
             is_valid = resp.data.get("script_exists", False)
             extracted_data["script_filename"] = resp.data.get("script_name", None) if is_valid else None
+            extracted_data["script_variables"] = message.context.get("script_variables", dict())
 
         # Handle priority extraction
         extracted_data["priority"] = self._extract_priority(message)
@@ -1281,13 +1289,16 @@ class AlertSkill(MycroftSkill):
         alert_kind = message.data.get('kind')
         alert_file = message.data.get('file')
         alert_script = message.data.get('script')
+        alert_routine = message.data.get('is_routine')
         skill_prefs = self.preference_skill(message)
 
         if self.gui_enabled and self.neon_core:
             self._gui_notify_expired(message)
 
         # We have a script to run or an audio to reconvey
-        if alert_script:
+        if alert_routine:
+            self._run_alert_routine(message)
+        elif alert_script:
             self._run_notify_expired(message)
         elif alert_file:
             self._play_notify_expired(message)
@@ -1298,10 +1309,16 @@ class AlertSkill(MycroftSkill):
         else:
             self._speak_notify_expired(message)
 
+    def _run_alert_routine(self, message):
+        context = message.data.get("routine_variables")
+        self.bus.emit(Message("neon.run_alert_routine", data=message.data, context=context))
+
     def _run_notify_expired(self, message):
         LOG.debug(message.data)
         try:
+            tag = message.data.get("script_variables").get("execute_from_tag")
             message.data["file_to_run"] = message.data.get("script")
+            message.data["utterance"] = message.data["utterance"] + message.data["file_to_run"] + f" at {tag}"
             # emit a message telling CustomConversations to run a script
             self.bus.emit(Message("neon.run_alert_script", data=message.data, context=message.context))
             LOG.info("The script has been executed with CC")
